@@ -43,6 +43,18 @@ var (
 			Buckets: prometheus.ExponentialBuckets(1, 2, 10),
 		},
 	)
+
+	// totalPaymentsSat tracks the total volume of payments sent in
+	// satoshis, labeled by final payment status. This permits computation
+	// of both successfully sent volume and volume of failed send
+	// attempts.
+	totalPaymentsSat = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lnd_total_payments_sat",
+			Help: "Total volume of payments sent in satoshis, labeled by final status",
+		},
+		[]string{"status"},
+	)
 )
 
 // paymentsMonitor listens for payments and updates Prometheus metrics.
@@ -145,6 +157,7 @@ func (p *paymentsMonitor) stop() {
 func (p *paymentsMonitor) collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		totalPayments, totalHTLCAttempts, paymentAttempts,
+		totalPaymentsSat,
 	}
 }
 
@@ -168,6 +181,7 @@ func processPaymentUpdate(payment *lnrpc.Payment) {
 
 	// Increment metrics with proper label.
 	totalPayments.WithLabelValues(status).Inc()
+	totalPaymentsSat.WithLabelValues(status).Add(float64(payment.ValueSat))
 
 	attemptCount := len(payment.Htlcs)
 	totalHTLCAttempts.WithLabelValues(status).Add(float64(attemptCount))

@@ -47,6 +47,16 @@
 * `lnd_peer_recv_byte`: bytes transmitted from this peer
   
   
+## Payment Metrics
+* `lnd_total_payments`: total number of payments sent, labeled by final status (`succeeded`/`failed`)
+* `lnd_total_payments_sat`: total volume of payments sent in satoshis, labeled by final status (`succeeded`/`failed`)
+* `lnd_total_htlc_attempts`: total number of HTLC attempts across all payments, labeled by final payment status
+* `lnd_payment_attempts_per_payment`: histogram of the number of attempts per payment
+
+## Invoice Metrics
+* `lnd_total_invoices`: total number of invoice updates received, labeled by invoice state (`open`/`accepted`/`settled`/`canceled`)
+* `lnd_total_invoices_sat`: total volume of invoices in satoshis, labeled by invoice state; for `settled` this is the amount actually received, for other states it is the requested invoice amount
+
 ## Wallet Metrics
 * `lnd_utxos_count_confirmed_total`: number of all conf utxos
 * `lnd_utxos_count_unconfirmed_total`: number of all unconf utxos

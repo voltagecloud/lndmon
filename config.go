@@ -57,6 +57,9 @@ type config struct {
 
 	// DisablePayments disables the collection of payments metrics.
 	DisablePayments bool `long:"disablepayments" description:"Do not collect payments metrics"`
+
+	// DisableInvoices disables the collection of invoice metrics.
+	DisableInvoices bool `long:"disableinvoices" description:"Do not collect invoice metrics"`
 }
 
 var defaultConfig = config{

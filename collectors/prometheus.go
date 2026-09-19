@@ -34,6 +34,7 @@ type PrometheusExporter struct {
 
 	htlcMonitor     *htlcMonitor
 	paymentsMonitor *paymentsMonitor
+	invoicesMonitor *invoicesMonitor
 
 	// collectors is the exporter's active set of collectors.
 	collectors []prometheus.Collector
@@ -75,6 +76,9 @@ type MonitoringConfig struct {
 
 	// DisablePayments disables collection of payment metrics
 	DisablePayments bool
+
+	// DisableInvoices disables collection of invoice metrics
+	DisableInvoices bool
 
 	// ProgramStartTime stores a best-effort estimate of when lnd/lndmon was
 	// started.
@@ -119,6 +123,9 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 	// Create payments monitor.
 	paymentsMonitor := newPaymentsMonitor(lnd, errChan)
 
+	// Create invoices monitor.
+	invoicesMonitor := newInvoicesMonitor(lnd, errChan)
+
 	chanCollector := NewChannelsCollector(
 		lnd.Client, errChan, quitChan, monitoringCfg,
 	)
@@ -143,6 +150,12 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 		)
 	}
 
+	if !monitoringCfg.DisableInvoices {
+		collectors = append(
+			collectors, invoicesMonitor.collectors()...,
+		)
+	}
+
 	if !monitoringCfg.DisableGraph {
 		collectors = append(
 			collectors, NewGraphCollector(lnd.Client, errChan),
@@ -156,6 +169,7 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 		collectors:      collectors,
 		htlcMonitor:     htlcMonitor,
 		paymentsMonitor: paymentsMonitor,
+		invoicesMonitor: invoicesMonitor,
 		errChan:         errChan,
 	}, nil
 }
@@ -188,6 +202,15 @@ func (p *PrometheusExporter) Start() error {
 	// metrics.
 	if !p.monitoringCfg.DisablePayments {
 		if err := p.paymentsMonitor.start(); err != nil {
+			return err
+		}
+	}
+
+	// Start the invoices monitor goroutine. This will subscribe to
+	// updates for all invoices tracked by lnd and update our invoice
+	// related metrics.
+	if !p.monitoringCfg.DisableInvoices {
+		if err := p.invoicesMonitor.start(); err != nil {
 			return err
 		}
 	}
@@ -229,6 +252,10 @@ func (p *PrometheusExporter) Stop() {
 
 	if !p.monitoringCfg.DisablePayments {
 		p.paymentsMonitor.stop()
+	}
+
+	if !p.monitoringCfg.DisableInvoices {
+		p.invoicesMonitor.stop()
 	}
 }
 

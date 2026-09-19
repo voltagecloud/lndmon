@@ -164,6 +164,7 @@ Application Options:
       --disablegraph                                                 Do not collect graph metrics
       --disablehtlc                                                  Do not collect HTLCs metrics
       --disablepayments                                              Do not collect payments metrics
+      --disableinvoices                                              Do not collect invoice metrics
 
 prometheus:
       --prometheus.listenaddr=                                       the interface we should listen on for prometheus (default:

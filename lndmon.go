@@ -66,6 +66,7 @@ func start() error {
 		DisableGraph:    cfg.DisableGraph,
 		DisableHtlc:     cfg.DisableHtlc,
 		DisablePayments: cfg.DisablePayments,
+		DisableInvoices: cfg.DisableInvoices,
 	}
 	if cfg.PrimaryNode != "" {
 		primaryNode, err := route.NewVertexFromStr(cfg.PrimaryNode)
