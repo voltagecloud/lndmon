@@ -50,8 +50,11 @@
 ## Payment Metrics
 * `lnd_total_payments`: total number of payments sent, labeled by final status (`succeeded`/`failed`)
 * `lnd_total_payments_sat`: total volume of payments sent in satoshis, labeled by final status (`succeeded`/`failed`)
+* `lnd_total_payments_fees_sat`: total routing fees paid for payments sent, in satoshis, labeled by final status (only `succeeded` accrues a non-zero fee in practice)
 * `lnd_total_htlc_attempts`: total number of HTLC attempts across all payments, labeled by final payment status
 * `lnd_payment_attempts_per_payment`: histogram of the number of attempts per payment
+* `lnd_payment_duration_seconds`: histogram of the time taken for a payment to reach a terminal state, labeled by final status; use `histogram_quantile` for median/percentile speed, or `rate(..._sum)/rate(..._count)` for average speed
+* `lnd_payment_num_hops`: histogram of the number of hops in the route of a payment's terminal HTLC attempt, labeled by final status; use `histogram_quantile` for median hop count, or `rate(..._sum)/rate(..._count)` for average hop count
 
 ## Invoice Metrics
 * `lnd_total_invoices`: total number of invoice updates received, labeled by invoice state (`open`/`accepted`/`settled`/`canceled`)

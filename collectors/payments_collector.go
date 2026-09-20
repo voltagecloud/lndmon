@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -52,6 +53,51 @@ var (
 		prometheus.CounterOpts{
 			Name: "lnd_total_payments_sat",
 			Help: "Total volume of payments sent in satoshis, labeled by final status",
+		},
+		[]string{"status"},
+	)
+
+	// totalPaymentsFeesSat tracks the total routing fees paid for
+	// payments sent, in satoshis, labeled by final payment status. Since
+	// failed payments pay no routing fee, in practice only the
+	// "succeeded" label accumulates a non-zero total.
+	totalPaymentsFeesSat = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lnd_total_payments_fees_sat",
+			Help: "Total routing fees paid for payments sent, in satoshis, labeled by final status",
+		},
+		[]string{"status"},
+	)
+
+	// paymentDuration is a histogram tracking how long it took a payment
+	// to reach a terminal state, measured from creation to the
+	// resolution of its terminal HTLC attempt. This allows median/avg
+	// payment speed to be computed via histogram_quantile and
+	// sum/count respectively.
+	paymentDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "lnd_payment_duration_seconds",
+			Help: "Histogram tracking the time (in seconds) taken " +
+				"for a payment to reach a terminal state, " +
+				"labeled by final status",
+			Buckets: []float64{
+				0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600,
+			},
+		},
+		[]string{"status"},
+	)
+
+	// paymentHops is a histogram tracking the number of hops in the
+	// route used by a payment's terminal HTLC attempt. This allows
+	// median/avg hop count to be computed via histogram_quantile and
+	// sum/count respectively.
+	paymentHops = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "lnd_payment_num_hops",
+			Help: "Histogram tracking the number of hops in the " +
+				"route of a payment's terminal HTLC attempt, " +
+				"labeled by final status",
+			Buckets: prometheus.LinearBuckets(1, 1, 20),
 		},
 		[]string{"status"},
 	)
@@ -157,7 +203,8 @@ func (p *paymentsMonitor) stop() {
 func (p *paymentsMonitor) collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		totalPayments, totalHTLCAttempts, paymentAttempts,
-		totalPaymentsSat,
+		totalPaymentsSat, totalPaymentsFeesSat, paymentDuration,
+		paymentHops,
 	}
 }
 
@@ -182,11 +229,55 @@ func processPaymentUpdate(payment *lnrpc.Payment) {
 	// Increment metrics with proper label.
 	totalPayments.WithLabelValues(status).Inc()
 	totalPaymentsSat.WithLabelValues(status).Add(float64(payment.ValueSat))
+	totalPaymentsFeesSat.WithLabelValues(status).Add(float64(payment.FeeSat))
 
 	attemptCount := len(payment.Htlcs)
 	totalHTLCAttempts.WithLabelValues(status).Add(float64(attemptCount))
 
 	paymentAttempts.Observe(float64(attemptCount))
+
+	// Record the duration and hop count of the HTLC attempt that
+	// resolved the payment: the successful attempt if the payment
+	// succeeded, or otherwise the most recent attempt that led to the
+	// payment's final failure.
+	if htlc := terminalHTLCAttempt(payment.Htlcs); htlc != nil {
+		if payment.CreationTimeNs > 0 && htlc.ResolveTimeNs > 0 {
+			durationNs := htlc.ResolveTimeNs - payment.CreationTimeNs
+			if durationNs > 0 {
+				paymentDuration.WithLabelValues(status).Observe(
+					time.Duration(durationNs).Seconds(),
+				)
+			}
+		}
+
+		if htlc.Route != nil {
+			paymentHops.WithLabelValues(status).Observe(
+				float64(len(htlc.Route.Hops)),
+			)
+		}
+	}
+
 	paymentLogger.Debugf("Payment %s updated: status=%s, %d attempts",
 		payment.PaymentHash, status, attemptCount)
+}
+
+// terminalHTLCAttempt returns the HTLC attempt that determined the payment's
+// final outcome: the successful attempt, if any, or else the most recently
+// attempted HTLC (the one responsible for the payment's final failure).
+func terminalHTLCAttempt(htlcs []*lnrpc.HTLCAttempt) *lnrpc.HTLCAttempt {
+	var lastAttempt *lnrpc.HTLCAttempt
+
+	for _, htlc := range htlcs {
+		if htlc.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+			return htlc
+		}
+
+		if lastAttempt == nil ||
+			htlc.AttemptTimeNs > lastAttempt.AttemptTimeNs {
+
+			lastAttempt = htlc
+		}
+	}
+
+	return lastAttempt
 }
