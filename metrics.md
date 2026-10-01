@@ -56,9 +56,34 @@
 * `lnd_payment_duration_seconds`: histogram of the time taken for a payment to reach a terminal state, labeled by final status; use `histogram_quantile` for median/percentile speed, or `rate(..._sum)/rate(..._count)` for average speed
 * `lnd_payment_num_hops`: histogram of the number of hops in the route of a payment's terminal HTLC attempt, labeled by final status; use `histogram_quantile` for median hop count, or `rate(..._sum)/rate(..._count)` for average hop count
 
+With `--seedmetrics`, payment volume, fees, duration, and hop histograms include
+retained terminal payments from before exporter startup. Live updates do not
+count seeded payments twice. Deleted records and overwritten failed retries
+cannot be restored. Existing payment count and attempt metrics remain live-only.
+Payment volumes and fees preserve fractional satoshis from LND's millisatoshi
+fields. Duration uses the last resolved successful shard for multipart payments.
+Hop count describes that selected shard, not the sum of all shard routes.
+
 ## Invoice Metrics
-* `lnd_total_invoices`: total number of invoice updates received, labeled by invoice state (`open`/`accepted`/`settled`/`canceled`)
-* `lnd_total_invoices_sat`: total volume of invoices in satoshis, labeled by invoice state; for `settled` this is the amount actually received, for other states it is the requested invoice amount
+
+* `lnd_invoices`: number of stored invoices, grouped by LND's reported current state (`open`/`accepted`/`settled`/`canceled`/`unknown`).
+* `lnd_invoices_sat`: amount of stored invoices in satoshis, grouped by current state. Settled invoices use the amount received. Other states use the requested amount.
+
+These metrics are gauges. Each invoice contributes to one state per refresh.
+They load before the metrics endpoint starts and refresh every 60 seconds.
+Complete scans replace the previous values together. An RPC failure stops the
+exporter instead of publishing a partial scan. A scan contains invoices through
+a fixed add index; state changes during pagination appear on the next refresh.
+
+Gauges can decrease when invoices change state or records are deleted. Do not
+use `rate()` or `increase()` as invoice throughput queries. LND's global invoice
+subscription does not emit accepted or canceled transitions, and stored records
+cannot reconstruct all historical state transitions.
+
+An Atomic Multi-Path (AMP) invoice counts once, including when it receives
+multiple payments. Its settled amount includes the aggregate amount received.
+LND reports it as settled after a set settles, although the invoice may accept
+additional payments. Fractional satoshi amounts are preserved.
 
 ## Wallet Metrics
 * `lnd_utxos_count_confirmed_total`: number of all conf utxos

@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -83,6 +84,13 @@ type MonitoringConfig struct {
 	// DisableInvoices disables collection of invoice metrics
 	DisableInvoices bool
 
+	// SeedMetrics restores payment volume, fees and the duration and hop
+	// histograms. Existing payment count and attempt metrics remain live-only.
+	SeedMetrics bool
+
+	// RPCTimeout bounds each request used to read retained history.
+	RPCTimeout time.Duration
+
 	// ProgramStartTime stores a best-effort estimate of when lnd/lndmon was
 	// started.
 	ProgramStartTime time.Time
@@ -124,10 +132,14 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 	htlcMonitor := newHtlcMonitor(lnd.Router, errChan)
 
 	// Create payments monitor.
-	paymentsMonitor := newPaymentsMonitor(lnd, errChan)
+	paymentsMonitor := newPaymentsMonitor(
+		lnd, errChan, monitoringCfg.SeedMetrics, monitoringCfg.RPCTimeout,
+	)
 
 	// Create invoices monitor.
-	invoicesMonitor := newInvoicesMonitor(lnd, errChan)
+	invoicesMonitor := newInvoicesMonitor(
+		lnd, errChan, monitoringCfg.RPCTimeout,
+	)
 
 	chanCollector := NewChannelsCollector(
 		lnd.Client, errChan, quitChan, monitoringCfg,
@@ -182,6 +194,12 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 // Start registers all relevant metrics with the Prometheus library, then
 // launches the HTTP server that Prometheus will hit to scrape our metrics.
 func (p *PrometheusExporter) Start() error {
+	return p.StartWithContext(context.Background())
+}
+
+// StartWithContext starts the exporter and allows cancellation while history
+// is read. The caller must call Stop after a successful start.
+func (p *PrometheusExporter) StartWithContext(ctx context.Context) error {
 	Logger.Info("Starting Prometheus exporter...")
 	if p.lnd == nil {
 		return fmt.Errorf("cannot start PrometheusExporter without " +
@@ -198,6 +216,7 @@ func (p *PrometheusExporter) Start() error {
 	// update all of our routing-related metrics.
 	if !p.monitoringCfg.DisableHtlc {
 		if err := p.htlcMonitor.start(); err != nil {
+			p.Stop()
 			return err
 		}
 	}
@@ -206,16 +225,17 @@ func (p *PrometheusExporter) Start() error {
 	// update for all payments made by lnd and update our payments related
 	// metrics.
 	if !p.monitoringCfg.DisablePayments {
-		if err := p.paymentsMonitor.start(); err != nil {
+		if err := p.paymentsMonitor.start(ctx); err != nil {
+			p.Stop()
 			return err
 		}
 	}
 
-	// Start the invoices monitor goroutine. This will subscribe to
-	// updates for all invoices tracked by lnd and update our invoice
-	// related metrics.
+	// Load invoice state before serving metrics, then refresh complete
+	// inventories in the background.
 	if !p.monitoringCfg.DisableInvoices {
-		if err := p.invoicesMonitor.start(); err != nil {
+		if err := p.invoicesMonitor.start(ctx); err != nil {
+			p.Stop()
 			return err
 		}
 	}

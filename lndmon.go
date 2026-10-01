@@ -1,6 +1,7 @@
 package lndmon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,11 +39,16 @@ func start() error {
 		return fmt.Errorf("could not intercept signal: %v", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cancelOnShutdown(ctx, interceptor.ShutdownChannel(), cancel)
+
 	programStartTime := time.Now()
 
 	// Initialize our lnd client, requiring at least lnd v0.11.
 	lnd, err := lndclient.NewLndServices(
 		&lndclient.LndServicesConfig{
+			CallerCtx:  ctx,
 			LndAddress: cfg.Lnd.Host,
 			Network:    lndclient.Network(cfg.Lnd.Network),
 			CustomMacaroonPath: filepath.Join(
@@ -61,6 +67,7 @@ func start() error {
 		return err
 	}
 	defer lnd.Close()
+	defer close(quit)
 
 	monitoringCfg := collectors.MonitoringConfig{
 		DisableGraph:      cfg.DisableGraph,
@@ -68,6 +75,8 @@ func start() error {
 		DisableWatchtower: cfg.DisableWatchtower,
 		DisablePayments:   cfg.DisablePayments,
 		DisableInvoices:   cfg.DisableInvoices,
+		SeedMetrics:       cfg.SeedMetrics,
+		RPCTimeout:        cfg.Lnd.RPCTimeout,
 	}
 	if cfg.PrimaryNode != "" {
 		primaryNode, err := route.NewVertexFromStr(cfg.PrimaryNode)
@@ -86,7 +95,7 @@ func start() error {
 	if err != nil {
 		return err
 	}
-	if err := exporter.Start(); err != nil {
+	if err := exporter.StartWithContext(ctx); err != nil {
 		return err
 	}
 
@@ -95,7 +104,6 @@ func start() error {
 	var stopErr error
 	select {
 	case <-interceptor.ShutdownChannel():
-		close(quit)
 		fmt.Println("Exiting lndmon.")
 
 	case stopErr = <-exporter.Errors():
@@ -107,4 +115,15 @@ func start() error {
 	exporter.Stop()
 
 	return stopErr
+}
+
+// cancelOnShutdown also interrupts initialization before the exporter starts.
+func cancelOnShutdown(ctx context.Context, shutdown <-chan struct{},
+	cancel context.CancelFunc) {
+
+	select {
+	case <-shutdown:
+		cancel()
+	case <-ctx.Done():
+	}
 }
