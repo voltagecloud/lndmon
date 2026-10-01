@@ -70,13 +70,12 @@ func start() error {
 	defer close(quit)
 
 	monitoringCfg := collectors.MonitoringConfig{
-		DisableGraph:      cfg.DisableGraph,
-		DisableHtlc:       cfg.DisableHtlc,
-		DisableWatchtower: cfg.DisableWatchtower,
-		DisablePayments:   cfg.DisablePayments,
-		DisableInvoices:   cfg.DisableInvoices,
-		SeedMetrics:       cfg.SeedMetrics,
-		RPCTimeout:        cfg.Lnd.RPCTimeout,
+		DisableGraph:    cfg.DisableGraph,
+		DisableHtlc:     cfg.DisableHtlc,
+		DisablePayments: cfg.DisablePayments,
+		DisableInvoices: cfg.DisableInvoices,
+		SeedMetrics:     cfg.SeedMetrics,
+		RPCTimeout:      cfg.Lnd.RPCTimeout,
 	}
 	if cfg.PrimaryNode != "" {
 		primaryNode, err := route.NewVertexFromStr(cfg.PrimaryNode)

@@ -75,9 +75,6 @@ type MonitoringConfig struct {
 	// DisableHtlc disables collection of HTLCs metrics
 	DisableHtlc bool
 
-	// DisableWatchtower disables collection of watchtower client metrics.
-	DisableWatchtower bool
-
 	// DisablePayments disables collection of payment metrics
 	DisablePayments bool
 
@@ -152,9 +149,7 @@ func NewPrometheusExporter(cfg *PrometheusConfig, lnd *lndclient.LndServices,
 		NewPeerCollector(lnd.Client, errChan),
 		NewInfoCollector(lnd.Client, errChan),
 		NewStateCollector(lnd, errChan, monitoringCfg.ProgramStartTime),
-	}
-	if !monitoringCfg.DisableWatchtower {
-		collectors = append(collectors, NewWtClientCollector(lnd, errChan))
+		NewWtClientCollector(lnd, errChan),
 	}
 
 	if !monitoringCfg.DisableHtlc {
